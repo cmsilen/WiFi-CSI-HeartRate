@@ -5,3 +5,6 @@
 # Venv
 **/.venv/
 **/venv/
+
+# CSV files
+*.csv
