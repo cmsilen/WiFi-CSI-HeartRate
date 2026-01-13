@@ -1,6 +1,7 @@
 import csv
 import serial
 from io import StringIO
+from collections import deque
 
 from log import print_log, LVL_DBG, LVL_INF, LVL_ERR
 
@@ -33,14 +34,14 @@ def csi_data_source_init(port, from_ser: bool = True):
     from_serial = from_ser
 
     if from_serial:
-        ser = serial.Serial(port=port, baudrate=921600,bytesize=8, parity='N', stopbits=1)
+        ser = serial.Serial(port=port, baudrate=921600, timeout=1)
         if ser.isOpen():
             print_log("Serial port opened successfully", LVL_INF)
             print_log(f"Port     = {port}", LVL_DBG)
             print_log(f"Baudrate = {921600}", LVL_DBG)
-            print_log(f"Bytesize = {8}", LVL_DBG)
-            print_log(f"Parity   = {'N'}", LVL_DBG)
-            print_log(f"stopbits = {1}", LVL_DBG)
+            # print_log(f"Bytesize = {8}", LVL_DBG)
+            # print_log(f"Parity   = {'N'}", LVL_DBG)
+            # print_log(f"stopbits = {1}", LVL_DBG)
         else:
             print("Serial port - Open failed", LVL_ERR)
             return -1
@@ -85,7 +86,7 @@ def get_csi_data():
 
         if index == -1:
             print_log("CSI_DATA field not found", LVL_ERR)
-            raise ValueError(-1)
+            raise ValueError(-2)
 
         csv_reader = csv.reader(StringIO(strings))
         csi_data = next(csv_reader)
@@ -113,4 +114,25 @@ def get_csi_data():
         
         csv_index += 1
         return csi_data
+    
+
+def fecth_csi_data_proc(port: str, from_ser: bool, hr_queue: deque):
+
+    csi_data_source_init(port=port, from_ser=from_ser)
+
+    while True:
+
+        # get CSI data
+        try:
+            csi_data = get_csi_data()
+        except ValueError as ve:
+            if ve == 1:
+                print_log("Error in get_csi_data", LVL_ERR)
+            continue
+
+        # Put into queue
+        hr_queue.appendleft(csi_data)
+
+        # Debug print
+        print_log(f"Current CSI data queue length: {len(hr_queue)}", LVL_INF)
     

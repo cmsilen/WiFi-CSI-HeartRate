@@ -5,7 +5,7 @@ from collections import deque
 from multiprocessing import Process, Queue
 
 
-from csisource import csi_data_source_init, get_csi_data, csi_data_source_close
+from csisource import csi_data_source_init, get_csi_data, csi_data_source_close, fecth_csi_data_proc
 from dsp import parse_csi_amplitudes, estimate_hr_freq
 from hrui import start_plotting, push_new_hr
 from log import print_log, set_print_level, LVL_DBG, LVL_INF, LVL_ERR, DebugLevel
@@ -26,8 +26,11 @@ def Hz_to_BPM(hz: float) -> float:
 def monitor_hr(
         port: str,
         from_serial: bool = True,
-        print_level: str = 'info'):
+        print_level: str = 'info'
+    ):
     
+    #region ======= Arguments check =======
+
     if print_level not in ['debug', 'info', 'error']:
         print("ERROR - print level not recognized. Should be one of 'debug', 'info', 'error'")
         return -1
@@ -39,7 +42,10 @@ def monitor_hr(
     }
 
     set_print_level(level_map[print_level])
+    
+    #endregion
 
+    #region ======= Parameters =======
     LOG = True
 
     sampling_freq = 20 # Hertz
@@ -52,7 +58,7 @@ def monitor_hr(
     HR_MIN = 45
     HR_MAX = 200
     window_len = 500 # TODO tuning
-    iter_per_estimate = 20 # If equal to sampling frequency it means an estimate for second
+    iter_per_estimate = 40 # If equal to sampling frequency it means an estimate for second
     
     if LOG:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -70,15 +76,25 @@ def monitor_hr(
             f.write(f"HR Min = [{HR_MAX}]\n")
             f.write(" --- Results: (mean / median)\n")
 
-    iter = 0
+    #endregion
+    
+    #region ======= Processes =======
 
-    # Sliding window of csi data arrays
-    csi_data_window = deque(maxlen=window_len)
- 
+    # (1) === Connect to data source
     csi_data_source_init(port=port, from_ser=from_serial)
     print_log("Source initiated", LVL_INF)
 
-    # Start plottin HR data (separate process)
+    # (2) === CSI data source process
+    # csi_data_queue = deque(maxlen=100)
+    # csi_proc = Process(
+    #     target=fecth_csi_data_proc,
+    #     args=(port, from_serial, csi_data_queue),
+    #     daemon=True
+    # )
+    # csi_proc.start()
+    # print_log("CSI data source process started", LVL_INF)
+
+    # (3) === Plotting process
     hr_queue = Queue()
     ui_proc = Process(
         target=start_plotting,
@@ -88,23 +104,50 @@ def monitor_hr(
     ui_proc.start()
     print_log("UI process started", LVL_INF)
 
-    frame_num = 0
+    #endregion
     
+    #region ======= Main loop =======
+    
+    # Number of iteration since last HR estimate
+    iter = 0
+
+    # Sliding window of csi data arrays
+    csi_data_window = deque(maxlen=window_len)
+
+    # Overall iteration counter
+    frame_num = 0
+    _last_id = -1
+
     while True:
         frame_num += 1
 
         # Get CSI data
         try:
             csi_data = get_csi_data()
-        except IndexError as ie:
-            break
+            # csi_data = csi_data_queue.pop()
+        except ValueError as ve:
+            if ve != -2:
+                print_log(f"Error in getting csi data: {ve}", LVL_ERR)
+            continue
+        except IndexError as e:
+            print_log(f"Error in getting csi data: {e}", LVL_ERR)
+            continue
+        except RuntimeError as e:
+            print_log("Error in getting csi data", LVL_ERR)
+            continue
 
-        print_log("(main loop) - csi data received", LVL_DBG)
+        if _last_id != -1 and _last_id != (int(csi_data[1]) - 1):
+            print_log(f"(main loop) - csi data MISSING  (ID={_last_id+1})", LVL_DBG)
+
+        print_log(f"(main loop) - csi data received (ID={csi_data[1]})", LVL_DBG)
+        _last_id = int(csi_data[1])
 
         # Ensure message length is recognized (among two standards)
         if len(csi_data) != len(DATA_COLUMNS_NAMES) and len(csi_data) != len(DATA_COLUMNS_NAMES_C5C6):
             print_log(f"(main loop) - Message length is not recognized", LVL_ERR)
             print_log(f"(main loop) - Len = {len(csi_data)}, can be {len(DATA_COLUMNS_NAMES) } or {len(DATA_COLUMNS_NAMES_C5C6)}", LVL_ERR)
+            print(f"FRAME NUM: {frame_num}")
+            print(csi_data)
             continue
 
         print_log("(main loop) - correct message length", LVL_DBG)
@@ -162,7 +205,7 @@ def monitor_hr(
 
             # push_new_hr(Hz_to_BPM(hr_hz))
 
-            if LOG:
+            if False:
                 # Estimate also median heart rate
                 hr_hz_median = estimate_hr_freq(
                     signal_matrix=csi_data_window,
@@ -183,9 +226,15 @@ def monitor_hr(
 
         else:
             iter += 1
+    
+    #endregion
 
+    #region ======= Closing resources =======
+    
     # Close the source
     csi_data_source_close()
     print_log("Source closed", LVL_INF)
+    
+    #endregion
 
     return
