@@ -1,7 +1,12 @@
+/* Get Start Example
+   This example code is in the Public Domain (or CC0 licensed, at your option.)
+*/
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <string.h>
 
 #include "nvs_flash.h"
 #include "esp_mac.h"
@@ -13,6 +18,9 @@
 
 #include "driver/uart.h"
 #include "driver/gpio.h"
+
+#define START_CMD "START\n"
+#define START_CMD_LEN 6
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL   11
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
@@ -204,6 +212,28 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 /*************** CSI INIT *****************/
 static void wifi_csi_init()
 {
+    uint8_t data[200];
+
+    // wait for START command
+    while (1) {
+        int len = uart_read_bytes(
+            UART_NUM_0,
+            data,
+            START_CMD_LEN,
+            pdMS_TO_TICKS(1000)   // timeout 1s
+        );
+        //uart_printf(UART_NUM_0, "waiting... received %d bytes\n", len);
+
+        if (len > 0) {
+            data[len] = '\0';
+            //uart_printf(UART_NUM_0, "received %s\n", (char*)data);
+            if(strcmp((char*)data, START_CMD) == 0) {
+                // start command received
+                break;
+            }
+        }
+    }
+
     ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
 
     wifi_csi_config_t csi_config = {
@@ -245,6 +275,7 @@ static void wifi_csi_init()
         .shift             = false
 #endif
     };
+
     ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
     ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(wifi_csi_rx_cb, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_csi(true));
@@ -253,8 +284,8 @@ static void wifi_csi_init()
 /*************** MAIN *****************/
 void app_main()
 {
-    const int tx_pin = GPIO_NUM_17;
-    const int rx_pin = GPIO_NUM_16;
+    const int tx_pin = UART_PIN_NO_CHANGE;
+    const int rx_pin = UART_PIN_NO_CHANGE;
 
     const uart_config_t uart_config = {
         .baud_rate = 115200,   // qui puoi cambiare il baud rate

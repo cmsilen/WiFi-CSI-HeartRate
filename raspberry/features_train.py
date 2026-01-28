@@ -9,17 +9,17 @@ from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.callbacks import ModelCheckpoint # type: ignore
 
 RAW_DATA_PATH = "data/raw_data.csv" # where to get the raw data
 CSI_DATA_LENGTH = 384               # esp32 exposes only 192 subcarriers, each carrier has associated I/Q components, so 192 x 2 = 384
-SAMPLING_FREQUENCY = 20
-SEGMENTATION_WINDOW_LENGTH = 200
-SUBCARRIER_PLOT = None
-MSE_THRESHOLD = 0.01
-SAVE_TRAIN_DATA = False
-TRAIN_MODEL = True
-LEARNING_RATE = 1e-4
+SAMPLING_FREQUENCY = 20             # (Hz) frequency of the esp32 transmitter 
+SEGMENTATION_WINDOW_LENGTH = 200    # how many consecutive samples are given to the LSTM model
+SUBCARRIER_PLOT = None              # show the csi amplitude plot for the given subcarrier
+MSE_THRESHOLD = 0.01                # early stopping threshold (training phase)
+SAVE_TRAIN_DATA = False             # decide if the training data should be saved (it will be in the GB order)
+TRAIN_MODEL = True                  # decide if the training should be carried out
+LEARNING_RATE = 1e-4                # learning rate of the model during the training (before it was 0.001, but it will diverge)
 
 
 def extract_features(df, settings):
