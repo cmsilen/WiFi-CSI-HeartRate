@@ -9,16 +9,19 @@ from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras.callbacks import ModelCheckpoint
 
 RAW_DATA_PATH = "data/raw_data.csv" # where to get the raw data
 CSI_DATA_LENGTH = 384               # esp32 exposes only 192 subcarriers, each carrier has associated I/Q components, so 192 x 2 = 384
-DC_REMOVAL_WINDOW_LENGTH = 100
 SAMPLING_FREQUENCY = 20
 SEGMENTATION_WINDOW_LENGTH = 200
 SUBCARRIER_PLOT = None
 MSE_THRESHOLD = 0.01
 SAVE_TRAIN_DATA = False
 TRAIN_MODEL = True
+LEARNING_RATE = 1e-4
+
+
 
 def extract_features(df, settings):
     training_phase = settings["training_phase"]
@@ -27,38 +30,19 @@ def extract_features(df, settings):
     sampling_frequency = settings["sampling_frequency"]
     segmentation_window_length = settings["segmentation_window_length"]
 
-    def safe_parse_csi(data_str):
-        if not isinstance(data_str, str):
-            return None
-
-        match = re.search(r"\[.*\]", data_str)
-        if not match:
-            return None
-
-        try:
-            return ast.literal_eval(match.group())
-        except Exception:
-            return None
-
-
     #remove useless columns
     if training_phase:
-        df_csi = df[["local_timestamp", "data", "AVG BPM"]].copy()
+        df_csi = df[["local_timestamp", "csi_raw", "AVG BPM"]].copy()
     else:
-        df_csi = df[["local_timestamp", "data"]].copy()
+        df_csi = df[["local_timestamp", "csi_raw"]].copy()
 
     # remove corrupted data fields
-    df_csi["csi_raw"] = df_csi["data"].apply(safe_parse_csi)
     df_csi = df_csi.dropna()
 
     if len(df_csi) < segmentation_window_length:
         if verbose:
             print("not enough data")
         return []
-
-    # remove wrong length data fields
-    df_csi["csi_len"] = df_csi["csi_raw"].apply(len)
-    df_csi = df_csi[df_csi["csi_len"] == csi_data_length].copy()
 
     # extract I/Q components from the raw csi data
     def iq_to_complex(csi_raw):
@@ -88,7 +72,7 @@ def extract_features(df, settings):
     df_csi["csi_amp"] = df_csi["csi_complex"].apply(np.abs)
 
     # 2. stationary noise removal (remove the dc component)
-    buffer = deque(maxlen=DC_REMOVAL_WINDOW_LENGTH)
+    buffer = deque(maxlen=segmentation_window_length)
     def dc_remove_online(amp):
         buffer.append(amp)
         mean = np.mean(buffer, axis=0)
@@ -232,6 +216,7 @@ if __name__ == '__main__':
 
     df = pd.read_csv(RAW_DATA_PATH, sep=",")
     print(df.columns)
+    df["csi_raw"] = df["csi_raw"].apply(ast.literal_eval)
     df = extract_features(df, settings)
     if SAVE_TRAIN_DATA:
         df.to_csv(f"data/train_data_{SEGMENTATION_WINDOW_LENGTH}.csv", index=False)
@@ -254,7 +239,7 @@ if __name__ == '__main__':
     print(df.dtypes)
 
     # Build the model.
-    main_input = keras.Input(shape=(SEGMENTATION_WINDOW_LENGTH, CSI_DATA_LENGTH / 2), name='main_input')
+    main_input = keras.Input(shape=(SEGMENTATION_WINDOW_LENGTH, int(CSI_DATA_LENGTH / 2)), name='main_input')
     layers = keras.layers.LSTM(64, return_sequences=True, name='lstm_1')(main_input)
     layers = keras.layers.Dropout(0.2, name='dropout_1')(layers)
     layers = keras.layers.LSTM(32, name='lstm_2')(layers)
@@ -265,7 +250,7 @@ if __name__ == '__main__':
     model = keras.Model(inputs=main_input, outputs=hr_output)
 
     # Compile the model.
-    optimizer = keras.optimizers.Adam(learning_rate=0.001)
+    optimizer = keras.optimizers.Adam(learning_rate=LEARNING_RATE)
         
     model.compile(optimizer=optimizer, 
         loss={'hr_output': 'mse'}
@@ -282,7 +267,17 @@ if __name__ == '__main__':
     print("Training data Y shape: {0}".format(y.shape))
 
     # Train the model.
-    callbacks_list = [stopCallback()]
+    checkpoint = ModelCheckpoint(
+        filepath=f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.keras",
+        monitor="val_loss",
+        save_best_only=True,
+        mode="min",
+        verbose=1
+    )
+    callbacks_list = [
+        stopCallback(),
+        checkpoint
+    ]
 
     model.fit(X, y, batch_size=128, epochs=5000, verbose=2, validation_split=0.2, callbacks=callbacks_list)
     model.save(f"models/csi_hr_{SEGMENTATION_WINDOW_LENGTH}.keras")
