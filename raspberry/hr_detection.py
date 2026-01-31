@@ -1,17 +1,13 @@
-import sys
 import argparse
 import numpy as np
+import pandas as pd
 import serial
-from io import StringIO
-import ast
-from typing import List, Tuple, Optional, Dict, Any
-import tensorflow as tf
-from tensorflow import keras
-import numpy as np
-from collect_data import *
-from features_train import extract_features
 import threading
 from collections import deque
+from collect_data import iterate_data_rcv, from_buffer_to_df_detection
+from features_train import extract_features
+from tensorflow import keras
+
 
 N_SAMPLES_SCREEN_UPDATE = 10
 MOVING_AVG_SIZE_PREDICTIONS = 10
