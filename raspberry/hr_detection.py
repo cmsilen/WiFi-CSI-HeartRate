@@ -89,6 +89,8 @@ def csi_process_thread():
         df = from_buffer_to_df_detection(buffer, DATA_COLUMNS_NAMES)
         if not df.empty:
             current_df = pd.concat([current_df, df], ignore_index=True)
+        else:
+            continue
 
         current_df_len = len(current_df)
         if current_df_len < SEGMENTATION_WINDOW_LENGTH:
