@@ -7,7 +7,6 @@ from collections import deque
 from collect_data import iterate_data_rcv, from_buffer_to_df_detection
 from features_train import extract_features
 from tensorflow import keras
-import tensorflow as tf
 
 
 N_SAMPLES_SCREEN_UPDATE = 10
@@ -30,9 +29,6 @@ input_lstm = None
 input_lstm_lock = threading.Lock()
 
 model = keras.models.load_model(f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.keras", safe_mode=False)
-converter = tf.lite.TFLiteConverter.from_keras_model(model)
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-model = converter.convert()
 
 def csi_read_thread(port):
     global new_data_event
