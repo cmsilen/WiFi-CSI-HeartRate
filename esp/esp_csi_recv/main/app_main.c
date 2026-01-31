@@ -188,19 +188,25 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     uint32_t rx_id = *(uint32_t *)(info->payload + 15);
     const wifi_pkt_rx_ctrl_t *rx_ctrl = &info->rx_ctrl;
 
+    /*
     if (!s_count) {
         uart_print(UART_NUM_0, "================ CSI RECV ================\n");
         uart_print(UART_NUM_0, "type,id,mac,rssi,rate,sig_mode,mcs,bandwidth,smoothing,not_sounding,aggregation,stbc,fec_coding,sgi,noise_floor,ampdu_cnt,channel,secondary_channel,local_timestamp,ant,sig_len,rx_state,len,first_word,data\n");
-    }
+    }*/
 
+    //DATA_COLUMNS_NAMES = ["type", "local_timestamp", "data"]
+    // print type, local_timestamp
+    uart_printf(UART_NUM_0, "CSI_DATA,%d", rx_ctrl->timestamp);
+    /*
     uart_printf(UART_NUM_0, "CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
                 rx_id, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate, rx_ctrl->sig_mode,
                 rx_ctrl->mcs, rx_ctrl->cwb, rx_ctrl->smoothing, rx_ctrl->not_sounding,
                 rx_ctrl->aggregation, rx_ctrl->stbc, rx_ctrl->fec_coding, rx_ctrl->sgi,
                 rx_ctrl->noise_floor, rx_ctrl->ampdu_cnt, rx_ctrl->channel, rx_ctrl->secondary_channel,
-                rx_ctrl->timestamp, rx_ctrl->ant, rx_ctrl->sig_len, rx_ctrl->rx_state);
+                rx_ctrl->timestamp, rx_ctrl->ant, rx_ctrl->sig_len, rx_ctrl->rx_state);*/
 
-    uart_printf(UART_NUM_0, ",%d,%d,\"[%d", info->len, info->first_word_invalid, info->buf[0]);
+    // print data
+    uart_printf(UART_NUM_0, ",\"[%d", info->buf[0]);
     for (int i = 1; i < info->len; i++) {
         uart_printf(UART_NUM_0, ",%d", info->buf[i]);
     }

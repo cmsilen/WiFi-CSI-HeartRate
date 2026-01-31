@@ -15,8 +15,7 @@ from collections import deque
 
 N_SAMPLES_SCREEN_UPDATE = 10
 MOVING_AVG_SIZE_PREDICTIONS = 10
-DATA_COLUMNS_NAMES = ["type", "id", "mac", "rssi", "rate", "sig_mode", "mcs", "bandwidth", "smoothing", "not_sounding", "aggregation", "stbc", "fec_coding",
-                      "sgi", "noise_floor", "ampdu_cnt", "channel", "secondary_channel", "local_timestamp", "ant", "sig_len", "rx_state", "len", "first_word", "data"]
+DATA_COLUMNS_NAMES = ["type", "local_timestamp", "data"]
 HR_COLUMNS_NAMES = ["IR", "BPM", "AVG BPM"]
 CSI_DATA_LENGTH = 384               # esp32 exposes only 192 subcarriers, each carrier has associated I/Q components, so 192 x 2 = 384
 SAMPLING_FREQUENCY = 20

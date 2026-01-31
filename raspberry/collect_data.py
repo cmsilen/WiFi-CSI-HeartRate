@@ -15,8 +15,7 @@ import re
 
 ACCEPTED_HR_RANGE = [60, 90]
 ACCEPTED_IR_RANGE = [100000, 120000]
-DATA_COLUMNS_NAMES = ["type", "id", "mac", "rssi", "rate", "sig_mode", "mcs", "bandwidth", "smoothing", "not_sounding", "aggregation", "stbc", "fec_coding",
-                      "sgi", "noise_floor", "ampdu_cnt", "channel", "secondary_channel", "local_timestamp", "ant", "sig_len", "rx_state", "len", "first_word", "data"]
+DATA_COLUMNS_NAMES = ["type", "local_timestamp", "data"]
 HR_COLUMNS_NAMES = ["IR", "BPM", "AVG BPM"]
 
 
