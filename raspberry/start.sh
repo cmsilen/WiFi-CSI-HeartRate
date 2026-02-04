@@ -1,0 +1,1 @@
+sudo chrt -f 50 python hr_detection.py -p /dev/ttyUSB0 -ps /dev/ttyACM0
