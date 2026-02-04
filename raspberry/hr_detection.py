@@ -5,8 +5,8 @@ import serial
 import threading
 import time
 from collections import deque
-from collect_data import iterate_data_rcv, from_buffer_to_df_detection
-from features_train import extract_features
+from parse_data import iterate_data_rcv, from_buffer_to_df_detection
+from features_raspberry import extract_features
 from tensorflow import keras
 import tensorflow as tf
 
@@ -19,6 +19,9 @@ SAMPLING_FREQUENCY = 20
 SEGMENTATION_WINDOW_LENGTH = 200    # WINDOW_SIZE
 RECEIVE_TIMEOUT = 2                 # seconds
 
+CSI_RX_BAUDRATE = 921600
+LCD_BAUDRATE = 115200
+
 
 stop_event = threading.Event()
 
@@ -29,6 +32,10 @@ buffer_csi_lock = threading.Lock()
 new_input_event = threading.Event()
 input_lstm = None
 input_lstm_lock = threading.Lock()
+
+new_hr_event = threading.Event()
+new_hr = None
+new_hr_lock = threading.Lock()
 
 tf.keras.mixed_precision.set_global_policy('mixed_float16')
 model = keras.models.load_model(f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.keras", safe_mode=False)
@@ -49,7 +56,7 @@ def csi_read_thread(port):
     global stop_event
     ser = None
     try:
-        ser = serial.Serial(port=port, baudrate=115200,bytesize=8, parity='N', stopbits=1, timeout=RECEIVE_TIMEOUT)
+        ser = serial.Serial(port=port, baudrate=CSI_RX_BAUDRATE,bytesize=8, parity='N', stopbits=1, timeout=RECEIVE_TIMEOUT)
         if ser.isOpen():
             print("CSI receiver: open success")
         else:
@@ -68,11 +75,9 @@ def csi_read_thread(port):
     ser.reset_input_buffer()
     print(f"Gathering data...")
     while not stop_event.is_set():
-        outcome, strings, _ = iterate_data_rcv(ser, None, None, None, True)
-        if outcome is None:
+        strings = iterate_data_rcv(ser)
+        if strings is None:
             break
-        if outcome == False:
-            continue
 
         with buffer_csi_lock:
             buffer_csi.append(strings)
@@ -103,10 +108,10 @@ def csi_process_thread():
     current_df = pd.DataFrame(columns=DATA_COLUMNS_NAMES)
 
     while not stop_event.is_set():
-        if not new_data_event.wait(RECEIVE_TIMEOUT):
-            print("csi_process_thread: timeout, exiting...")
-            break
+        new_data_event.wait()
         new_data_event.clear()
+        if stop_event.is_set():
+            break
 
         with buffer_csi_lock:
             buffer = buffer_csi
@@ -124,23 +129,47 @@ def csi_process_thread():
             continue
         
         window = extract_features(current_df.head(SEGMENTATION_WINDOW_LENGTH), settings)
-        current_df = current_df.iloc[1:].reset_index(drop=True)
-        if len(window) != 1:
+        if window is None or len(window) != 1:
             continue
+        current_df = current_df.iloc[1:].reset_index(drop=True)
 
         with input_lstm_lock:
             input_lstm = window.copy()
         new_input_event.set()
 
 
-def prediction_thread(port):
+def prediction_thread():
     global input_lstm
     global new_input_event
     global stop_event
     global model
+    global new_hr_lock
+    global new_hr
+    global new_hr_event
+    
+    while not stop_event.is_set():
+        new_input_event.wait()
+        new_input_event.clear()
+        if stop_event.is_set():
+            break
+
+        with input_lstm_lock:
+            window = input_lstm.copy()
+        
+        new_prediction = model.predict(window, verbose=0)
+        prediction = new_prediction[0][0]
+        with new_hr_lock:
+            new_hr = prediction
+        new_hr_event.set()
+
+
+def lcd_thread(port):
+    global new_hr
+    global new_hr_event
+    global new_hr_lock
 
     n_predictions = 0
-    ser_screen = serial.Serial(port=port, baudrate=115200,bytesize=8, parity='N', stopbits=1)
+    ser_screen = serial.Serial(port=port, baudrate=LCD_BAUDRATE,bytesize=8, parity='N', stopbits=1)
     samples = deque(maxlen=MOVING_AVG_SIZE_PREDICTIONS)
     if ser_screen.isOpen():
         print("STM32 lcd: open success")
@@ -150,17 +179,15 @@ def prediction_thread(port):
         return
     
     while not stop_event.is_set():
-        new_input_event.wait()
-        if not new_input_event.wait(RECEIVE_TIMEOUT):
-            print("prediction_thread: timeout, exiting...")
+        new_hr_event.wait()
+        new_hr_event.clear()
+        if stop_event.is_set():
             break
-        new_input_event.clear()
 
-        with input_lstm_lock:
-            window = input_lstm.copy()
+        prediction = None
+        with new_hr_lock:
+            prediction = new_hr
         
-        new_prediction = model.predict(window, verbose=0)
-        prediction = new_prediction[0][0]
         samples.append(prediction)
         n_predictions += 1
         avg_bpm = np.mean(samples)
@@ -171,10 +198,8 @@ def prediction_thread(port):
             value = int(avg_bpm)
             string_s = f"{value:03d}\n"
             ser_screen.write(string_s.encode("ascii"))
-
     
     ser_screen.close()
-
 
 
 if __name__ == '__main__':
@@ -192,13 +217,18 @@ if __name__ == '__main__':
     
     t_read = threading.Thread(target=csi_read_thread, args=(serial_port,))
     t_process = threading.Thread(target=csi_process_thread)
-    t_pred = threading.Thread(target=prediction_thread, args=(serial_port_screen,))
+    t_pred = threading.Thread(target=prediction_thread)
+    t_lcd = threading.Thread(target=lcd_thread, args=(serial_port_screen,))
 
     t_read.start()
     t_process.start()
     t_pred.start()
+    t_lcd.start()
     try:
         stop_event.wait()
     except KeyboardInterrupt:
         print("Closing...")
         stop_event.set()
+        new_data_event.set()
+        new_input_event.set()
+        new_hr_event.set()

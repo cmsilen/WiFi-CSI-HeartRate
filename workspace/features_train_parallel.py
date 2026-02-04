@@ -99,10 +99,6 @@ def extract_features(df, training=True):
     if len(df) < WINDOW_LENGTH:
         return None, None
 
-
-    if len(df) < WINDOW_LENGTH:
-        return None, None
-
     # -----------------------
     # CSI → COMPLEX
     # -----------------------
@@ -185,9 +181,11 @@ def extract_features(df, training=True):
     # -----------------------
     # HR WINDOW
     # -----------------------
-    hr = df["AVG BPM"].to_numpy(dtype=np.float32)
-    y = np.convolve(hr, np.ones(WINDOW_LENGTH) / WINDOW_LENGTH, mode="valid")
-    y = y.astype(np.float32)
+    y = None
+    if training:
+        hr = df["AVG BPM"].to_numpy(dtype=np.float32)
+        y = np.convolve(hr, np.ones(WINDOW_LENGTH) / WINDOW_LENGTH, mode="valid")
+        y = y.astype(np.float32)
 
     return X, y
 
