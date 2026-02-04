@@ -16,6 +16,7 @@ HR_COLUMNS_NAMES = ["IR", "BPM", "AVG BPM"]
 CSI_DATA_LENGTH = 384               # esp32 exposes only 192 subcarriers, each carrier has associated I/Q components, so 192 x 2 = 384
 SAMPLING_FREQUENCY = 20
 SEGMENTATION_WINDOW_LENGTH = 200    # WINDOW_SIZE
+RECEIVE_TIMEOUT = 2                 # seconds
 
 
 stop_event = threading.Event()
@@ -45,7 +46,7 @@ def csi_read_thread(port):
     global new_data_event
     global buffer_csi
     global stop_event
-    ser = serial.Serial(port=port, baudrate=115200,bytesize=8, parity='N', stopbits=1)
+    ser = serial.Serial(port=port, baudrate=115200,bytesize=8, parity='N', stopbits=1, timeout=RECEIVE_TIMEOUT)
     if ser.isOpen():
         print("open success")
     else:
@@ -87,7 +88,9 @@ def csi_process_thread():
     current_df = pd.DataFrame(columns=DATA_COLUMNS_NAMES)
 
     while not stop_event.is_set():
-        new_data_event.wait()
+        if not new_data_event.wait(RECEIVE_TIMEOUT):
+            print("csi_process_thread: timeout, exiting...")
+            break
         new_data_event.clear()
 
         with buffer_csi_lock:
@@ -133,6 +136,9 @@ def prediction_thread(port):
     
     while not stop_event.is_set():
         new_input_event.wait()
+        if not new_input_event.wait(RECEIVE_TIMEOUT):
+            print("prediction_thread: timeout, exiting...")
+            break
         new_input_event.clear()
 
         with input_lstm_lock:
