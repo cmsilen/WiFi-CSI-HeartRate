@@ -27,6 +27,20 @@ CSI_RX_BAUDRATE = 921600
 LCD_BAUDRATE = 115200
 
 
+def rst_esp(ser):
+    # Induce reset via DTR/RTS
+    ser.dtr = False
+    ser.rts = True
+    time.sleep(0.1)  # breve pausa
+    ser.dtr = True
+    ser.rts = False
+
+    # Ora la scheda è resettata
+    print("ESP32 resettato")
+
+    time.sleep(0.1)  # breve pausa
+    ser.reset_input_buffer()
+
 # ================= PROCESSES =================
 
 def csi_read_process(port, q_out, stop_event):
@@ -40,6 +54,8 @@ def csi_read_process(port, q_out, stop_event):
         print("CSI receiver: open failed")
         stop_event.set()
         return
+    
+    rst_esp(ser)
 
     ser.write(b"START\n")
     ser.reset_input_buffer()
