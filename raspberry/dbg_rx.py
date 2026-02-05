@@ -2,7 +2,7 @@ import serial
 import time
 
 # Sostituisci con la tua porta seriale
-PORT = "/dev/serial0" #'/dev/tty.usbserial-0001'  # su Linux /dev/ttyUSB0
+PORT = '/dev/tty.usbserial-0001' # "/dev/serial0"  # su Linux /dev/ttyUSB0
 BAUD = 460800
 
 # Apri la seriale
