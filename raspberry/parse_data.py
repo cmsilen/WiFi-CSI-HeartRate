@@ -25,7 +25,6 @@ def safe_parse_csi_data(data_str):
 
 def iterate_data_rcv(ser):
     strings = str(ser.readline())
-    print("received line")
     if not strings:
         print("no string from csi port")
         return None
