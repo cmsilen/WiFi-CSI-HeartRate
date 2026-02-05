@@ -3,7 +3,7 @@ import time
 
 # Sostituisci con la tua porta seriale
 PORT = '/dev/tty.usbserial-0001'  # su Linux /dev/ttyUSB0
-BAUD = 921600
+BAUD = 460800
 
 # Apri la seriale
 ser = serial.Serial(PORT, BAUD)
