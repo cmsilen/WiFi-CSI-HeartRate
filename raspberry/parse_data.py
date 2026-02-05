@@ -29,6 +29,7 @@ def iterate_data_rcv(ser):
         print("no string from csi port")
         return None
     strings = strings.lstrip('b\'').rstrip('\\r\\n\'')
+    print(strings)
     return strings
 
 
