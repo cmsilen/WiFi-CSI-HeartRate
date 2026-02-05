@@ -38,7 +38,7 @@ def rst_esp(ser):
     # Ora la scheda è resettata
     print("ESP32 resettato")
 
-    time.sleep(0.1)  # breve pausa
+    time.sleep(2)  # breve pausa
     ser.reset_input_buffer()
 
 # ================= PROCESSES =================
