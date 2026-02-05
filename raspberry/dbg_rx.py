@@ -12,7 +12,7 @@ ser = serial.Serial(PORT, BAUD)
 print("ESP32 resettato")
 
 time.sleep(0.1)  # breve pausa
-#ser.write(b"START\n")
+ser.write(b"START\n")
 ser.reset_input_buffer()
 
 # Continua a leggere la seriale
