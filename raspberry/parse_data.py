@@ -3,23 +3,19 @@ from io import StringIO
 import numpy as np
 import pandas as pd
 
-def parse_csi_line(line, cols):
+def parse_csi_line_csv(line, cols):
     """
-    Parse a line sent via serial line
-    
-    :param line: received string in csv format
-    :param cols: columns associated to each attribute
+    Parse a CSV line using csv.reader and return a dict.
+    Handles quotes properly.
     """
-    result = None
     try:
-        result = pd.read_csv(
-            StringIO(line),
-            names=cols,
-            quotechar='"'
-        )
-    except pd.errors.ParserError:
-        result = None
-    return result
+        reader = csv.reader([line], quotechar='"', skipinitialspace=True)
+        row = next(reader)
+        if len(row) != len(cols):
+            return None
+        return dict(zip(cols, row))
+    except Exception:
+        return None
 
 def safe_parse_csi_data(data_str):
     """
@@ -37,34 +33,29 @@ def safe_parse_csi_data(data_str):
 
 def from_buffer_to_df_detection(buffer_csi, cols_csi, csi_data_length=384):
     """
-    Convert the buffer containing the received data to a Dataframe for processing
-    
-    :param buffer_csi: buffer with received data
-    :param cols_csi: columns associated to the received data
-    :param csi_data_length: length of the csi data array
+    Convert the buffer containing the received data to a DataFrame for processing.
+    Uses csv.reader for fast parsing and avoids creating DataFrame per line.
     """
     parsed_rows = []
 
-    #TODO probabilmente c'è un modo più efficiente
-    for line_csi in buffer_csi:
-        result_csi = parse_csi_line(line_csi, cols_csi)
-        if result_csi is not None and not result_csi.empty:
-            # Converti il risultato (DataFrame a riga singola) in dizionario e aggiungi alla lista
-            parsed_rows.append(result_csi.iloc[0].to_dict())
+    for line in buffer_csi:
+        row = parse_csi_line_csv(line, cols_csi)
+        if not row:
+            continue
 
-    # create dataframe
-    df_csi = pd.DataFrame(parsed_rows, columns=cols_csi)
+        if row.get("type") != "CSI_DATA":
+            continue
 
-    # only rows with type == "CSI_DATA" are valid
-    df_csi = df_csi[df_csi["type"] == "CSI_DATA"].copy()
+        csi_raw = safe_parse_csi_data(row.get("data"))
+        if csi_raw is None or len(csi_raw) != csi_data_length:
+            continue
 
-    # parse csi data array
-    df_csi["csi_raw"] = df_csi["data"].map(safe_parse_csi_data)
-    # drop invalid rows
-    df_csi.dropna(subset=["csi_raw"], inplace=True)
-    # compute csi data array length
-    df_csi["csi_len"] = df_csi["csi_raw"].map(len)
-    # remove arrays with wrong length
-    df_csi = df_csi[df_csi["csi_len"] == csi_data_length].copy()
+        row["csi_raw"] = csi_raw
+        row["csi_len"] = csi_data_length
 
-    return df_csi
+        parsed_rows.append(row)
+
+    if not parsed_rows:
+        return pd.DataFrame(columns=cols_csi + ["csi_raw", "csi_len"])
+
+    return pd.DataFrame(parsed_rows, columns=cols_csi + ["csi_raw", "csi_len"])
