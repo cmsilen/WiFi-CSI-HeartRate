@@ -10,7 +10,7 @@ import serial
 import tflite_runtime.interpreter as tflite
 
 from parse_data import from_buffer_to_df_detection
-from features_numba import extract_features
+from features_raspberry import extract_features
 
 
 # ================= CONFIG =================
