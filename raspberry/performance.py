@@ -60,8 +60,6 @@ def csi_read_process(port, q_out, lock, stop_event):
             continue
         strings = strings.lstrip('b\'').rstrip('\\r\\n\'')
         with lock:
-            if len(q_out) >= q_out.maxlen:
-                q_out.popleft()
             q_out.append(strings)
         track_time(stats, time.perf_counter() - start)
 
@@ -84,12 +82,13 @@ def csi_process_process(q_in, q_out, lock_in, lock_out, stop_event):
         buffer = None
         with lock_in:
             if len(q_in) > 0:
-                buffer = q_in.popleft()
+                buffer = list(q_in)
+                q_in.clear()
         if buffer is None:
             continue
 
         start = time.perf_counter()
-        df = from_buffer_to_df_detection([buffer], DATA_COLUMNS_NAMES)
+        df = from_buffer_to_df_detection(buffer, DATA_COLUMNS_NAMES)
         if df.empty:
             continue
 
@@ -107,8 +106,6 @@ def csi_process_process(q_in, q_out, lock_in, lock_out, stop_event):
 
         if window is not None:
             with lock_out:
-                if len(q_out) >= q_out.maxlen:
-                    q_out.popleft()
                 q_out.append(window)
         track_time(stats, time.perf_counter() - start)
 
