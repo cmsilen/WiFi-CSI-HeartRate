@@ -39,7 +39,7 @@ def safe_put(q, item):
             q.get_nowait()
         except:
             pass
-    q.put(item)
+    q.put(item, timeout=0.5)
 
 def get_all(q):
     """Ritorna tutti gli elementi presenti nella coda al momento della chiamata."""
