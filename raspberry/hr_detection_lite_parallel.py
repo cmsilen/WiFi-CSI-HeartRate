@@ -116,6 +116,9 @@ def csi_process_process(q_in, q_out, stop_event):
         # dequeue string
         try:
             buffer = get_all(q_in)
+            if len(buffer) == 0:
+                print("no buffer")
+                continue
         except:
             continue
 
