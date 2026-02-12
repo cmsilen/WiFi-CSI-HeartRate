@@ -2,7 +2,7 @@ import argparse
 import time
 import os
 from collections import deque
-from multiprocessing import Process, Queue, Event
+from multiprocessing import Process, Event, Manager
 
 import numpy as np
 import pandas as pd
@@ -12,51 +12,35 @@ import tflite_runtime.interpreter as tflite
 from parse_data import from_buffer_to_df_detection
 from features_raspberry import extract_features
 
-
 # ================= CONFIG =================
-N_SAMPLES_SCREEN_UPDATE = 1                                             # how many predictions to do before updating the screen
-MOVING_AVG_SIZE_PREDICTIONS = 10                                        # size of the moving average for the predictions
+N_SAMPLES_SCREEN_UPDATE = 1
+MOVING_AVG_SIZE_PREDICTIONS = 10
+DATA_COLUMNS_NAMES = ["type", "local_timestamp", "data"]
+CSI_DATA_LENGTH = 384
+SAMPLING_FREQUENCY = 20
+SEGMENTATION_WINDOW_LENGTH = 200
+RECEIVE_TIMEOUT = 2
+CSI_RX_BAUDRATE = 460800
+LCD_BAUDRATE = 115200
+MODEL_PATH = f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.tflite"
 
-DATA_COLUMNS_NAMES = ["type", "local_timestamp", "data"]                 # data transferred via uart
+# ================= HELPER =================
+def track_time(stats, duration):
+    stats['count'] += 1
+    stats['total'] += duration
+    stats['max'] = max(stats['max'], duration)
 
-CSI_DATA_LENGTH = 384                                                   # length of the csi data array (192 subcarriers x I/Q components)
-SAMPLING_FREQUENCY = 20                                                 # frequency of csi sampling
-SEGMENTATION_WINDOW_LENGTH = 200                                        # size of the LSTM window
-RECEIVE_TIMEOUT = 2                                                     # maximum waiting time for data to arrive in the uart line
-
-CSI_RX_BAUDRATE = 460800                                                # baud rate for the csi receiver (esp32)
-LCD_BAUDRATE = 115200                                                   # baud rate for the lcd screen (stm32f4-discovery)
-
-MODEL_PATH = f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.tflite"  # path of the model to be loaded
-
-
-# ================= UTILS =================
-
-def log_timing(name, start_time, counter=[0], acc_time=[0.0], max_time=[0.0]):
-    """Accumulate and periodically print pure computation time (avg and max)."""
-    elapsed = time.perf_counter() - start_time
-    acc_time[0] += elapsed
-    counter[0] += 1
-
-    if elapsed > max_time[0]:
-        max_time[0] = elapsed
-
-    if counter[0] % 50 == 0:
-        avg = acc_time[0] / counter[0]
-        print(
-            f"[{name}] avg: {avg*1000:.3f} ms | max: {max_time[0]*1000:.3f} ms over {counter[0]} iterations"
-        )
-
+def print_stats(name, stats):
+    if stats['count'] > 0:
+        avg = stats['total'] / stats['count']
+        print(f"[{name}] Avg: {avg*1000:.2f} ms | Max: {stats['max']*1000:.2f} ms | Count: {stats['count']}")
 
 # ================= PROCESSES =================
-
 def csi_read_process(port, q_out, stop_event):
-    """Read CSI strings from serial and push to queue."""
-
     os.sched_setaffinity(0, {0})
-    print(f"Worker PID {os.getpid()} assegnato al core {0}")
+    print(f"Worker PID {os.getpid()} assegnato al core 0")
+    stats = {'count':0, 'total':0.0, 'max':0.0}
 
-    ser = None
     try:
         ser = serial.Serial(port, CSI_RX_BAUDRATE, timeout=RECEIVE_TIMEOUT)
         print("CSI receiver: open success")
@@ -69,20 +53,15 @@ def csi_read_process(port, q_out, stop_event):
     ser.reset_input_buffer()
     ser.write(b"START\n")
 
-    print("csi_read_process: Gathering data...")
     while not stop_event.is_set():
+        start = time.perf_counter()
         strings = str(ser.readline())
         if not strings:
             continue
-
         strings = strings.lstrip('b\'').rstrip('\\r\\n\'')
-
-        start = time.perf_counter()
-        try:
-            q_out.put(strings, timeout=0.5)
-        except:
-            pass
-        log_timing("CSI_READ enqueue", start)
+        q_out.append(strings)
+        duration = time.perf_counter() - start
+        track_time(stats, duration)
 
     try:
         ser.write(b"STOP\n")
@@ -90,34 +69,27 @@ def csi_read_process(port, q_out, stop_event):
         ser.close()
     except:
         pass
-
+    print_stats("CSI_READ", stats)
 
 
 def csi_process_process(q_in, q_out, stop_event):
-    """Convert raw CSI string to feature windows."""
-
     os.sched_setaffinity(0, {1})
-    print(f"Worker PID {os.getpid()} assegnato al core {1}")
-
+    print(f"Worker PID {os.getpid()} assegnato al core 1")
     current_df = pd.DataFrame(columns=DATA_COLUMNS_NAMES)
+    stats = {'count':0, 'total':0.0, 'max':0.0}
 
-    print("csi_process_process: waiting for data...")
     while not stop_event.is_set():
-        try:
-            buffer = q_in.get(timeout=0.5)
-        except:
+        if len(q_in) == 0:
             continue
+        buffer = q_in.pop(0)
 
         start = time.perf_counter()
-
         df = from_buffer_to_df_detection([buffer], DATA_COLUMNS_NAMES)
         if df.empty:
             continue
 
         current_df = pd.concat([current_df, df], ignore_index=True)
-        current_df_len = len(current_df)
-
-        if current_df_len < SEGMENTATION_WINDOW_LENGTH:
+        if len(current_df) < SEGMENTATION_WINDOW_LENGTH:
             continue
 
         window = extract_features(
@@ -126,62 +98,49 @@ def csi_process_process(q_in, q_out, stop_event):
             SAMPLING_FREQUENCY,
             SEGMENTATION_WINDOW_LENGTH
         )
-
         current_df = current_df.iloc[1:].reset_index(drop=True)
 
         if window is not None:
-            try:
-                q_out.put(window, timeout=0.5)
-            except:
-                pass
+            q_out.append(window)
+        duration = time.perf_counter() - start
+        track_time(stats, duration)
 
-        log_timing("CSI_PROCESS compute", start)
-
+    print_stats("CSI_PROCESS", stats)
 
 
 def prediction_process(q_in, q_out, stop_event):
-    """Run TFLite inference on windows."""
-
     os.sched_setaffinity(0, {2})
-    print(f"Worker PID {os.getpid()} assegnato al core {2}")
+    print(f"Worker PID {os.getpid()} assegnato al core 2")
+    stats = {'count':0, 'total':0.0, 'max':0.0}
 
     print("Loading TFLite model...")
     interpreter = tflite.Interpreter(model_path=MODEL_PATH)
     interpreter.allocate_tensors()
-
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
-
     print("TFLite model loaded!")
-    print("prediction_process: waiting for window...")
 
     while not stop_event.is_set():
-        try:
-            window = q_in.get(timeout=0.5)
-        except:
+        if len(q_in) == 0:
             continue
+        window = q_in.pop(0)
 
         start = time.perf_counter()
-
         input_data = np.array(window, dtype=np.float32)
         interpreter.set_tensor(input_details[0]["index"], input_data)
         interpreter.invoke()
         pred = interpreter.get_tensor(output_details[0]["index"])[0][0]
+        q_out.append(pred)
+        duration = time.perf_counter() - start
+        track_time(stats, duration)
 
-        try:
-            q_out.put(pred, timeout=0.5)
-        except:
-            pass
-
-        log_timing("PREDICTION compute", start)
-
+    print_stats("PREDICTION", stats)
 
 
 def lcd_process(port, q_in, stop_event):
-    """Send averaged BPM predictions to LCD via serial."""
-
     os.sched_setaffinity(0, {3})
-    print(f"Worker PID {os.getpid()} assegnato al core {3}")
+    print(f"Worker PID {os.getpid()} assegnato al core 3")
+    stats = {'count':0, 'total':0.0, 'max':0.0}
 
     try:
         ser = serial.Serial(port, LCD_BAUDRATE)
@@ -193,23 +152,19 @@ def lcd_process(port, q_in, stop_event):
 
     samples = deque(maxlen=MOVING_AVG_SIZE_PREDICTIONS)
     n = 0
-
-    print("lcd_process: waiting for prediction...")
     ser.write(f"000\n".encode("ascii"))
     ser.flush()
 
     while not stop_event.is_set():
-        try:
-            pred = q_in.get(timeout=0.5)
-        except:
+        if len(q_in) == 0:
             continue
+        pred = q_in.pop(0)
 
         start = time.perf_counter()
-
         samples.append(pred)
         n += 1
-
         avg = int(np.mean(samples))
+        print(avg)
 
         if n % N_SAMPLES_SCREEN_UPDATE == 0:
             try:
@@ -217,29 +172,29 @@ def lcd_process(port, q_in, stop_event):
                 ser.flush()
             except:
                 pass
-
-        log_timing("LCD compute", start)
+        duration = time.perf_counter() - start
+        track_time(stats, duration)
 
     try:
         ser.close()
     except:
         pass
+    print_stats("LCD_PROCESS", stats)
 
 
 # ================= MAIN =================
-
 def main():
     parser = argparse.ArgumentParser(description="Start heartbeat sensing")
     parser.add_argument("-p", "--port", required=True, help="CSI receiver serial port")
     parser.add_argument("-ps", "--port_screen", required=True, help="LCD serial port")
-
     args = parser.parse_args()
 
     stop_event = Event()
+    manager = Manager()
 
-    q_raw = Queue(maxsize=200)
-    q_window = Queue(maxsize=50)
-    q_pred = Queue(maxsize=50)
+    q_raw = manager.deque(maxlen=200)
+    q_window = manager.deque(maxlen=50)
+    q_pred = manager.deque(maxlen=50)
 
     processes = [
         Process(target=csi_read_process, args=(args.port, q_raw, stop_event)),
