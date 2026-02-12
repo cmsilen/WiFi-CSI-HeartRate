@@ -144,7 +144,7 @@ def csi_process_process(q_in, q_out, stop_event):
         )
 
         # remove oldest csi data
-        current_df = current_df.iloc[-(SEGMENTATION_WINDOW_LENGTH - MIN_SAMPLES_FOR_PROCESSING):, :].reset_index(drop=True)
+        current_df = current_df.iloc[-SEGMENTATION_WINDOW_LENGTH:, :].reset_index(drop=True)
 
         # enqueue features
         if window is not None:
