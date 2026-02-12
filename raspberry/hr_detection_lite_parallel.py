@@ -29,6 +29,28 @@ LCD_BAUDRATE = 115200                                                   # baud r
 
 MODEL_PATH = f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.tflite"  # path of the model to be loaded
 
+
+MAX_QUEUE_LENGTH = 200
+
+def safe_put(q, item):
+    """Inserisce item nella coda. Se la coda è piena, rimuove il più vecchio."""
+    if q.qsize() >= MAX_QUEUE_LENGTH:
+        try:
+            q.get_nowait()  # rimuove il più vecchio
+        except:
+            pass
+    q.put(item)
+
+def get_all(q):
+    """Ritorna tutti gli elementi presenti nella coda al momento della chiamata."""
+    items = []
+    while not q.empty():
+        try:
+            items.append(q.get_nowait())
+        except:
+            break  # in caso qualcuno abbia preso l'elemento prima
+    return items
+
 # ================= PROCESSES =================
 
 def csi_read_process(port, q_out, stop_event):
@@ -66,7 +88,7 @@ def csi_read_process(port, q_out, stop_event):
 
         # enqueue string
         try:
-            q_out.put(strings, timeout=0.5)
+            safe_put(q_out, strings)
         except:
             pass
 
@@ -93,7 +115,7 @@ def csi_process_process(q_in, q_out, stop_event):
     while not stop_event.is_set():
         # dequeue string
         try:
-            buffer = q_in.get(timeout=0.5)
+            buffer = get_all(q_in)
         except:
             continue
 
@@ -125,7 +147,7 @@ def csi_process_process(q_in, q_out, stop_event):
         # enqueue features
         if window is not None:
             try:
-                q_out.put(window, timeout=0.5)
+                safe_put(q_out, window)
             except:
                 pass
 
@@ -167,7 +189,7 @@ def prediction_process(q_in, q_out, stop_event):
 
         # enqueue prediction
         try:
-            q_out.put(pred, timeout=0.5)
+            safe_put(q_out, pred)
         except:
             pass
 
