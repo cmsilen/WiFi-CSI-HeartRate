@@ -36,7 +36,7 @@ def safe_put(q, item):
     """Inserisce item nella coda. Se la coda è piena, rimuove il più vecchio."""
     if q.qsize() >= MAX_QUEUE_LENGTH:
         try:
-            q.get(timeout=0.5)
+            q.get_nowait()
         except:
             pass
     q.put(item)
@@ -46,9 +46,9 @@ def get_all(q):
     items = []
     while len(items) < 20:
         try:
-            items.append(q.get(timeout=0.5))
+            items.append(q.get())
         except:
-            continue  # in caso qualcuno abbia preso l'elemento prima
+            break  # in caso qualcuno abbia preso l'elemento prima
     return items
 
 # ================= PROCESSES =================
@@ -115,10 +115,7 @@ def csi_process_process(q_in, q_out, stop_event):
     while not stop_event.is_set():
         # dequeue string
         try:
-            buffer = get_all(q_in)
-            if len(buffer) == 0:
-                print("no buffer")
-                continue
+            buffer = [q_in.get(timeout=0.5)]
         except:
             continue
 
