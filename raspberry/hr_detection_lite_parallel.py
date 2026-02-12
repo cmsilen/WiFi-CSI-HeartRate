@@ -12,6 +12,8 @@ import tflite_runtime.interpreter as tflite
 from parse_data import from_buffer_to_df_detection
 from features_raspberry import extract_features
 
+import queue
+
 
 # ================= CONFIG =================
 N_SAMPLES_SCREEN_UPDATE = 1                                             # how many predictions to do before updating the screen
@@ -33,15 +35,14 @@ MODEL_PATH = f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.tflite"  # path o
 MAX_QUEUE_LENGTH = 200
 
 def safe_put(q, item):
-    """Inserisce item nella coda. Se la coda è piena, rimuove il più vecchio."""
-    if q.qsize() >= MAX_QUEUE_LENGTH:
+    try:
+        q.put_nowait(item)
+    except queue.Full:
         try:
-            q.get_nowait()
-            print(f"buffer overflow {q.qsize()}")
-        except:
+            q.get_nowait()  # rimuovi il più vecchio
+        except queue.Empty:
             pass
-    q.put(item, timeout=0.5)
-    print(f"inserted {q.qsize()}")
+        q.put_nowait(item)
 
 def get_all(q):
     """Ritorna tutti gli elementi presenti nella coda al momento della chiamata."""
