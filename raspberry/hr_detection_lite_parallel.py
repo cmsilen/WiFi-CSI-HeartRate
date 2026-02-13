@@ -23,7 +23,7 @@ DATA_COLUMNS_NAMES = ["type", "local_timestamp", "data"]                 # data 
 
 CSI_DATA_LENGTH = 384                                                   # length of the csi data array (192 subcarriers x I/Q components)
 SAMPLING_FREQUENCY = 20                                                 # frequency of csi sampling
-SEGMENTATION_WINDOW_LENGTH = 200                                        # size of the LSTM window
+SEGMENTATION_WINDOW_LENGTH = 100                                        # size of the LSTM window
 RECEIVE_TIMEOUT = 2                                                     # maximum waiting time for data to arrive in the uart line
 
 CSI_RX_BAUDRATE = 460800                                                # baud rate for the csi receiver (esp32)
@@ -32,6 +32,8 @@ LCD_BAUDRATE = 115200                                                   # baud r
 MODEL_PATH = f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.tflite"  # path of the model to be loaded
 
 MIN_SAMPLES_FOR_PROCESSING = 10
+SCALING_MEAN = 77.683
+SCALING_STD = 14.341
 
 def safe_put(q, item):
     try:
@@ -188,6 +190,7 @@ def prediction_process(q_in, q_out, stop_event):
         interpreter.set_tensor(input_details[0]["index"], input_data)
         interpreter.invoke()
         pred = interpreter.get_tensor(output_details[0]["index"])[0][0]
+        pred = (pred * SCALING_STD) + SCALING_MEAN
 
         # enqueue prediction
         try:

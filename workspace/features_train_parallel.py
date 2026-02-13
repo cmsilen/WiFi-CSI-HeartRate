@@ -21,7 +21,7 @@ CSI_DATA_LENGTH = 384          # 192 subcarrier × I/Q
 N_SUB = CSI_DATA_LENGTH // 2
 
 SAMPLING_FREQUENCY = 20        # Hz
-WINDOW_LENGTH = 400            # samples
+WINDOW_LENGTH = 100            # samples
 LEARNING_RATE = 0.001          #1e-4
 MSE_THRESHOLD = 0.01
 VALIDATION_SPLIT = 0.4
@@ -30,7 +30,7 @@ SAVE_TRAIN_DATA = False
 
 MODEL_PATH = f"models/csi_hr_{WINDOW_LENGTH}.keras"
 CONTINUE_MODEL = None
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 TRAIN_FOR_TFLITE = True
 
 USE_CHUNKING = True
@@ -358,20 +358,46 @@ if __name__ == "__main__":
                 self.model.stop_training = True
 
 
+    class RMSEBPMCallback(tf.keras.callbacks.Callback):
+        def __init__(self, y_mean, y_std, X_val, y_val_norm):
+            super().__init__()
+            self.y_mean = y_mean
+            self.y_std = y_std
+            self.X_val = X_val
+            self.y_val_norm = y_val_norm
+
+        def on_epoch_end(self, epoch, logs=None):
+            # predizione sul validation set
+            y_pred_norm = self.model.predict(self.X_val, verbose=0)
+            # riportiamo a BPM reali
+            y_pred_bpm = y_pred_norm * self.y_std + self.y_mean
+            y_true_bpm = self.y_val_norm * self.y_std + self.y_mean
+            # RMSE in BPM
+            rmse_bpm = np.sqrt(np.mean((y_pred_bpm - y_true_bpm) ** 2))
+            print(f"Epoch {epoch + 1}: RMSE validation ≈ {rmse_bpm:.3f} BPM, \t mean: {self.y_mean:.3f} std: {self.y_std:.3f}")
+
+
     # balancing
     hist, bin_edges = np.histogram(y_train, bins=20)
     bin_indices = np.digitize(y_train, bin_edges[:-1])
     weights = 1.0 / hist[bin_indices - 1]
     weights = weights / np.mean(weights)
 
+    # normalization of y
+    y_mean = y_train.mean()
+    y_std = y_train.std() + 1e-6
+    y_norm = (y_train - y_mean) / y_std
+
+    y_val_norm = (y_val - y_mean) / y_std
+
     model.fit(
-        X_train, y_train,
-        validation_data=(X_val, y_val),
+        X_train, y_norm,
+        validation_data=(X_val, y_val_norm),
         sample_weight=weights,
         batch_size=BATCH_SIZE,
         epochs=5000,
         validation_split=VALIDATION_SPLIT,
-        callbacks=[checkpoint, StopCallback(), early_stop],
+        callbacks=[checkpoint, StopCallback(), early_stop, RMSEBPMCallback(y_mean, y_std, X_val, y_val_norm)],
         verbose=2
     )
 
