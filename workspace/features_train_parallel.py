@@ -1,6 +1,7 @@
 import os
 import ast
 import gc
+import random
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
@@ -20,17 +21,20 @@ CSI_DATA_LENGTH = 384          # 192 subcarrier × I/Q
 N_SUB = CSI_DATA_LENGTH // 2
 
 SAMPLING_FREQUENCY = 20        # Hz
-WINDOW_LENGTH = 200            # samples
+WINDOW_LENGTH = 400            # samples
 LEARNING_RATE = 0.001          #1e-4
 MSE_THRESHOLD = 0.01
+VALIDATION_SPLIT = 0.4
 
-TRAIN_MODEL = True
 SAVE_TRAIN_DATA = False
 
 MODEL_PATH = f"models/csi_hr_{WINDOW_LENGTH}.keras"
 CONTINUE_MODEL = None
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 TRAIN_FOR_TFLITE = True
+
+USE_CHUNKING = True
+N_CHUNKS = 20
 
 # =======================
 # TF GPU SAFE CONFIG
@@ -81,7 +85,7 @@ def butter_bandpass_filter(x, fs, lowcut=0.8, highcut=2.17, order=3):
 # FEATURE EXTRACTION
 # =======================
 
-def extract_features(df, training=True):
+def extract_features(df):
     """
     Return:
         X: (N, W, 192) float32
@@ -91,7 +95,7 @@ def extract_features(df, training=True):
     # -----------------------
     # CLEAN INPUT
     # -----------------------
-    cols = ["csi_raw", "AVG BPM"] if training else ["csi_raw"]
+    cols = ["csi_raw", "AVG BPM"]
     df = df[cols].dropna()
 
     # tieni solo CSI della lunghezza giusta (384)
@@ -176,19 +180,93 @@ def extract_features(df, training=True):
     del A_smooth
     gc.collect()
 
-    if not training:
-        return X, None
-
     # -----------------------
     # HR WINDOW
     # -----------------------
-    y = None
-    if training:
-        hr = df["AVG BPM"].to_numpy(dtype=np.float32)
-        y = np.convolve(hr, np.ones(WINDOW_LENGTH) / WINDOW_LENGTH, mode="valid")
-        y = y.astype(np.float32)
+    hr = df["AVG BPM"].to_numpy(dtype=np.float32)
+    y = np.convolve(hr, np.ones(WINDOW_LENGTH) / WINDOW_LENGTH, mode="valid")
+    y = y.astype(np.float32)
 
     return X, y
+
+
+import numpy as np
+
+
+def extract_features_with_stratified_chunks(df, chunk_size, train_ratio=0.8):
+    """
+    df: DataFrame originale
+    chunk_size: lunghezza dei chunk (>= 5-10 x WINDOW_LENGTH)
+    train_ratio: percentuale di chunk per train
+
+    Ritorna:
+        X_train, y_train, X_val, y_val
+    """
+
+    # -----------------------
+    # DIVIDI IN CHUNK CONTIGUI
+    # -----------------------
+    chunks = []
+    for i in range(0, len(df), chunk_size):
+        chunk = df.iloc[i:i + chunk_size]
+        if len(chunk) >= WINDOW_LENGTH:
+            chunks.append(chunk)
+
+    # -----------------------
+    # CALCOLA MEDIA TARGET PER OGNI CHUNK
+    # -----------------------
+    chunk_stats = []
+    for chunk in chunks:
+        hr_mean = chunk["AVG BPM"].mean()
+        chunk_stats.append((chunk, hr_mean))
+
+    # -----------------------
+    # ORDINA CHUNK PER HR MEDIO
+    # -----------------------
+    chunk_stats.sort(key=lambda x: x[1])
+
+    # -----------------------
+    # ASSEGNA CHUNK A TRAIN/VAL IN MODO STRATIFICATO
+    # -----------------------
+    n_train = int(train_ratio * len(chunk_stats))
+
+    # Alternanza stratificata
+    train_chunks = []
+    val_chunks = []
+
+    # Distribuisci ciclicamente
+    for i, (chunk, _) in enumerate(chunk_stats):
+        if i % int(1 / (1 - train_ratio)) == 0:
+            val_chunks.append(chunk)
+        else:
+            train_chunks.append(chunk)
+
+    # -----------------------
+    # ESTRAI FINETRE PER OGNI CHUNK
+    # -----------------------
+    def process_chunks(chunk_list):
+        X_list, y_list = [], []
+        for c in chunk_list:
+            Xc, yc = extract_features(c)
+            if Xc is not None:
+                X_list.append(Xc)
+                y_list.append(yc)
+        if len(X_list) == 0:
+            return None, None
+        X_all = np.concatenate(X_list, axis=0)
+        y_all = np.concatenate(y_list, axis=0)
+        return X_all, y_all
+
+    X_train, y_train = process_chunks(train_chunks)
+    X_val, y_val = process_chunks(val_chunks)
+
+    print("---------- DATASETS DISTRIBUTION ----------")
+    print("train:")
+    print(y_train.mean(), y_train.std())
+    print("val:")
+    print(y_val.mean(), y_val.std())
+
+    return X_train, y_train, X_val, y_val
 
 
 # =======================
@@ -204,22 +282,24 @@ if __name__ == "__main__":
     print(f"Initial dataset length: {len(df)}")
 
     print("Extracting features...")
-    X, y = extract_features(df, training=TRAIN_MODEL)
+    if USE_CHUNKING:
+        len_chunk = len(df) // N_CHUNKS
+        X_train, y_train, X_val, y_val = extract_features_with_stratified_chunks(df, len_chunk, 0.7)
+    else:
+        X, y = extract_features(df)
+        split = int(0.7 * len(X))
+        X_train = X[:split]
+        y_train = y[:split]
+        X_val = X[split:]
+        y_val = y[split:]
 
-    print("X:", X.shape)
-    print("y:", None if y is None else y.shape)
+    print("X_train:", X_train.shape)
+    print("y_train:", None if y_train is None else y_train.shape)
+    print("X_train shape:", X_train.shape)
+    print("Estimated size (GB):", X_train.nbytes / 1e9)
 
-    if not TRAIN_MODEL:
-        exit()
 
-    print("X shape:", X.shape)
-    print("Estimated size (GB):", X.nbytes / 1e9)
 
-    rng = np.random.default_rng(seed=42)
-    idx = np.arange(len(X))
-    rng.shuffle(idx)
-    X = X[idx]
-    y = y[idx]
 
     # =======================
     # MODEL
@@ -236,6 +316,7 @@ if __name__ == "__main__":
         x = keras.layers.Dropout(0.2)(x)
         x = keras.layers.LSTM(32, unroll=True)(x)
         x = keras.layers.Dropout(0.2)(x)
+        x = keras.layers.Dense(16, activation="relu")(x)
     outputs = keras.layers.Dense(1)(x)
 
     model = None
@@ -246,7 +327,8 @@ if __name__ == "__main__":
         model = keras.Model(inputs, outputs)
     model.compile(
         optimizer=keras.optimizers.Adam(LEARNING_RATE),
-        loss="mse"
+        loss="mse",
+        metrics=["mae"]
     )
     model.summary()
 
@@ -261,18 +343,35 @@ if __name__ == "__main__":
         verbose=1
     )
 
+    from tensorflow.keras.callbacks import EarlyStopping
+
+    early_stop = EarlyStopping(
+        monitor='val_mae',  # la metrica che vuoi monitorare
+        patience=10,  # quante epoche consecutive senza miglioramento
+        restore_best_weights=True
+    )
+
     class StopCallback(keras.callbacks.Callback):
         def on_epoch_end(self, epoch, logs=None):
             if logs and logs.get("val_loss", 1.0) <= MSE_THRESHOLD:
                 print("Reached MSE threshold. Stopping.")
                 self.model.stop_training = True
 
+
+    # balancing
+    hist, bin_edges = np.histogram(y_train, bins=20)
+    bin_indices = np.digitize(y_train, bin_edges[:-1])
+    weights = 1.0 / hist[bin_indices - 1]
+    weights = weights / np.mean(weights)
+
     model.fit(
-        X, y,
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        sample_weight=weights,
         batch_size=BATCH_SIZE,
         epochs=5000,
-        validation_split=0.3,
-        callbacks=[checkpoint, StopCallback()],
+        validation_split=VALIDATION_SPLIT,
+        callbacks=[checkpoint, StopCallback(), early_stop],
         verbose=2
     )
 
