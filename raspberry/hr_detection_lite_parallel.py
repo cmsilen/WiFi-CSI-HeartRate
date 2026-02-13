@@ -17,7 +17,7 @@ import queue
 
 # ================= CONFIG =================
 N_SAMPLES_SCREEN_UPDATE = 1                                             # how many predictions to do before updating the screen
-MOVING_AVG_SIZE_PREDICTIONS = 10                                        # size of the moving average for the predictions
+MOVING_AVG_SIZE_PREDICTIONS = 5                                         # size of the moving average for the predictions
 
 DATA_COLUMNS_NAMES = ["type", "local_timestamp", "data"]                 # data transferred via uart
 

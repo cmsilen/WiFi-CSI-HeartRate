@@ -10,6 +10,7 @@ from scipy.signal import butter, filtfilt, savgol_filter
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.losses import Huber
 
 # =======================
 # CONFIG
@@ -35,6 +36,7 @@ TRAIN_FOR_TFLITE = True
 
 USE_CHUNKING = True
 N_CHUNKS = 20
+DO_BALANCING = False
 
 # =======================
 # TF GPU SAFE CONFIG
@@ -327,7 +329,7 @@ if __name__ == "__main__":
         model = keras.Model(inputs, outputs)
     model.compile(
         optimizer=keras.optimizers.Adam(LEARNING_RATE),
-        loss="mse",
+        loss="mae",
         metrics=["mae"]
     )
     model.summary()
@@ -347,7 +349,7 @@ if __name__ == "__main__":
 
     early_stop = EarlyStopping(
         monitor='val_mae',  # la metrica che vuoi monitorare
-        patience=10,  # quante epoche consecutive senza miglioramento
+        patience=30,  # quante epoche consecutive senza miglioramento
         restore_best_weights=True
     )
 
@@ -374,14 +376,19 @@ if __name__ == "__main__":
             y_true_bpm = self.y_val_norm * self.y_std + self.y_mean
             # RMSE in BPM
             rmse_bpm = np.sqrt(np.mean((y_pred_bpm - y_true_bpm) ** 2))
+
+            from scipy.stats import pearsonr
+            print(pearsonr(self.y_val_norm.squeeze(), y_pred_norm.squeeze()))
             print(f"Epoch {epoch + 1}: RMSE validation ≈ {rmse_bpm:.3f} BPM, \t mean: {self.y_mean:.3f} std: {self.y_std:.3f}")
 
 
     # balancing
-    hist, bin_edges = np.histogram(y_train, bins=20)
-    bin_indices = np.digitize(y_train, bin_edges[:-1])
-    weights = 1.0 / hist[bin_indices - 1]
-    weights = weights / np.mean(weights)
+    weights = None
+    if DO_BALANCING:
+        hist, bin_edges = np.histogram(y_train, bins=20)
+        bin_indices = np.digitize(y_train, bin_edges[:-1])
+        weights = 1.0 / hist[bin_indices - 1]
+        weights = weights / np.mean(weights)
 
     # normalization of y
     y_mean = y_train.mean()
