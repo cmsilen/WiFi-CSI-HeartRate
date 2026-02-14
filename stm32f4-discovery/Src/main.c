@@ -47,30 +47,40 @@ static void clear_heart_area(int cx, int cy, int size);
 static void SystemClock_Config(void);
 static void Error_Handler(void);
 
-int main(void)
-{
+int main(void) {
+	// initialize HAL
     HAL_Init();
+
+    // initialize both leds
     BSP_LED_Init(LED3);
     BSP_LED_Init(LED4);
+
+    // clock configuration
     SystemClock_Config();
 
+    // uart initialization
     init_uart();
+
+    // lcd screen initialization
     init_lcd();
 
-    int animation_index = 0;
-    uint8_t buffer[4];
-    char bpm[4];
+    // start of normal operation
+    int animation_index = 0;			// current animation frame
+    uint8_t buffer[4];					// rx buffer
+    char bpm[4];						// bpm string to pass to lcd
     int bpm_index = 0;
-    uint32_t tickstart = HAL_GetTick();
-
+    uint32_t tickstart = HAL_GetTick();	// ticks when the last animation frame is updated
     while(1) {
+    	// check how many ticks elapsed from last animation frame
         uint32_t elapsed = HAL_GetTick() - tickstart;
         if(elapsed >= LCD_T_UPDATE) {
+        	// update the animation
             tickstart = HAL_GetTick();
             lcd_animation(animation_index++);
         }
 
-        if (uart_rcv(buffer, 4)) {  // ricezione parziale gestita
+        // check for incoming bytes
+        if (uart_rcv(buffer, 4)) {
             for(int i = 0; i < 4; i++) {
                 if (buffer[i] == '\n') {
                     bpm[bpm_index] = '\0';
@@ -100,28 +110,37 @@ static void init_uart() {
         Error_Handler();
     }
 
+    // send message to show that this board is alive
     char msg[] = "Hello\r\n";
     uart_send((uint8_t*)msg, sizeof(msg)-1);
 }
 
 /* LCD Initialization */
 static void init_lcd() {
-    BSP_LCD_Init();
+    // initialize lcd
+	BSP_LCD_Init();
+
+	// initialize layer
     BSP_LCD_LayerDefaultInit(1, LCD_FRAME_BUFFER);
+
+    // style the layer
     BSP_LCD_SelectLayer(1);
     BSP_LCD_SetBackColor(LCD_COLOR_WHITE);
     BSP_LCD_Clear(LCD_COLOR_WHITE);
     BSP_LCD_SetTextColor(LCD_COLOR_DARKBLUE);
     BSP_LCD_SetFont(&Font16);
+    // title
     BSP_LCD_DisplayStringAt(0, 10, (uint8_t*)"Current heartbeat", CENTER_MODE);
     BSP_LCD_SetFont(&LCD_DEFAULT_FONT);
+    // line where the bpm rate will be displayed
     BSP_LCD_DisplayStringAt(0, HEART_Y, (uint8_t*)"bpm", CENTER_MODE);
 }
 
-/* UART send with partial handling */
+// UART asynchronous send
 static int uart_send(uint8_t* buffer, uint16_t size) {
-    if (UartTxReady != SET) return 0;  // trasmissione in corso
+    if (UartTxReady != SET) return 0;  // ongoing transmission
 
+    // start transmission of first byte
     tx_buffer_ptr = buffer;
     tx_buffer_size = size;
     tx_buffer_index = 0;
@@ -134,10 +153,11 @@ static int uart_send(uint8_t* buffer, uint16_t size) {
     return 1;
 }
 
-/* UART receive with partial handling */
+// UART asynchronous receive
 static int uart_rcv(uint8_t* buffer, uint16_t size) {
-    if (UartRxReady != SET) return 0;  // ricezione in corso
+    if (UartRxReady != SET) return 0;  // ongoing reception
 
+    // start reception of first byte
     rx_buffer_ptr = buffer;
     rx_buffer_size = size;
     rx_buffer_index = 0;
@@ -150,17 +170,19 @@ static int uart_rcv(uint8_t* buffer, uint16_t size) {
     return 1;
 }
 
-/* LCD Animation */
+// lcd animation frame update function
 static void lcd_animation(int index) {
+	// list of frames containing the scaling coefficient
     float frames[4] = {0.50f, 0.70f, 0.80f, 0.70f};
     index = index % 4;
 
+    // we don't need to clear the heart area every frame. It is enough to clear it when the heart becomes smaller
     if(index == 0 || index == 3) clear_heart_area(HEART_X, HEART_Y, HEART_SIZE);
+    // draw the heart with the given scale
     draw_heart(HEART_X, HEART_Y, HEART_SIZE, frames[index]);
-    HAL_Delay(120);
 }
 
-/* Heart drawing */
+// draw a heart at (cx, cy) of the given size and applying a scale
 static void draw_heart(int cx, int cy, int size, float scale) {
     BSP_LCD_SetTextColor(HEART_COLOR);
     for(int y=-size/2;y<size/2;y++){
@@ -175,30 +197,35 @@ static void draw_heart(int cx, int cy, int size, float scale) {
     }
 }
 
+// remove the heart at (cx, cy) of the given size
 static void clear_heart_area(int cx, int cy, int size) {
     int half = size/2;
     BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
     BSP_LCD_FillRect(cx-half, cy-half, size, size);
 }
 
-/* UART TX callback */
+// uart tx callback. Called when a byte is transmitted
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *UartHandle) {
     if(tx_buffer_index < tx_buffer_size) {
+    	// transmit the next byte
         if(HAL_UART_Transmit_IT(UartHandle, &tx_buffer_ptr[tx_buffer_index], 1) != HAL_OK)
             Error_Handler();
         tx_buffer_index++;
     } else {
+    	// the transmission is concluded
         UartTxReady = SET;
     }
 }
 
-/* UART RX callback */
+// uart rx callback. Called when a byte is received
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *UartHandle) {
     if(rx_buffer_index < rx_buffer_size) {
+    	// receive the next byte
         if(HAL_UART_Receive_IT(UartHandle, &rx_buffer_ptr[rx_buffer_index], 1) != HAL_OK)
             Error_Handler();
         rx_buffer_index++;
     } else {
+    	// the reception is concluded
         UartRxReady = SET;
     }
 }

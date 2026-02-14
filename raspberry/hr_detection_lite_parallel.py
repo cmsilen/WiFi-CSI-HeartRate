@@ -7,7 +7,7 @@ from multiprocessing import Process, Queue, Event
 import numpy as np
 import pandas as pd
 import serial
-import tflite_runtime.interpreter as tflite
+import tflite_runtime.interpreter as tflite # type: ignore
 
 from parse_data import from_buffer_to_df_detection
 from features_raspberry import extract_features
@@ -31,22 +31,24 @@ LCD_BAUDRATE = 115200                                                   # baud r
 
 MODEL_PATH = f"models/csi_hr_best_{SEGMENTATION_WINDOW_LENGTH}.tflite"  # path of the model to be loaded
 
-MIN_SAMPLES_FOR_PROCESSING = 10
-SCALING_MEAN = 77.683
-SCALING_STD = 14.341
+MIN_SAMPLES_FOR_PROCESSING = 10                                         # how many new samples must be received before a prediction
+SCALING_MEAN = 77.683                                                   # y_mean computed at training time
+SCALING_STD = 14.341                                                    # y_std computed at training time
 
 def safe_put(q, item):
+    """Insert a new element in queue and remove old elements if the limit is reached"""
     try:
         q.put_nowait(item)
     except queue.Full:
         try:
-            q.get_nowait()  # rimuovi il più vecchio
+            # remove the oldest element if the queue is full
+            q.get_nowait()
         except queue.Empty:
             pass
         q.put_nowait(item)
 
 def get_all(q):
-    """Ritorna tutti gli elementi presenti nella coda al momento della chiamata."""
+    """Get all elements in the queue"""
     items = []
     while len(items) < MIN_SAMPLES_FOR_PROCESSING:
         try:
