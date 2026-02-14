@@ -110,6 +110,7 @@ def csi_process_process(q_in, q_out, stop_event):
     times = []
 
     print("csi_process_process: waiting for data...")
+    i = 0
     while not stop_event.is_set():
         try:
             buffer = get_all(q_in)
@@ -145,7 +146,9 @@ def csi_process_process(q_in, q_out, stop_event):
             except:
                 pass
 
-        report(times, "csi_process_process")
+        if i % 100 == 0:
+            report(times, "csi_process_process")
+        i += 1
 
 
 def prediction_process(q_in, q_out, stop_event):
@@ -163,7 +166,7 @@ def prediction_process(q_in, q_out, stop_event):
     print("prediction_process: waiting for window...")
 
     times = []
-
+    i = 0
     while not stop_event.is_set():
         try:
             window = q_in.get(timeout=0.5)
@@ -185,7 +188,9 @@ def prediction_process(q_in, q_out, stop_event):
 
         times.append(time.perf_counter() - t0)
 
-        report(times, "prediction_process")
+        if i % 100 == 0:
+            report(times, "prediction_process")
+        i += 1
 
 
 def lcd_process(port, q_in, stop_event):
@@ -208,6 +213,7 @@ def lcd_process(port, q_in, stop_event):
     ser.write(f"000\n".encode("ascii"))
     ser.flush()
 
+    i = 0
     while not stop_event.is_set():
         try:
             pred = q_in.get(timeout=0.5)
@@ -229,7 +235,9 @@ def lcd_process(port, q_in, stop_event):
 
         times.append(time.perf_counter() - t0)
 
-        report(times, "lcd_process")
+        if i % 100 == 0:
+            report(times, "lcd_process")
+        i += 1
 
     try:
         ser.close()
