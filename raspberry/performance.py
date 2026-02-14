@@ -141,13 +141,13 @@ def csi_process_process(q_in, q_out, stop_event):
 
         current_df = current_df.iloc[-SEGMENTATION_WINDOW_LENGTH:, :].reset_index(drop=True)
 
+        times.append(time.perf_counter() - t0)
+
         if window is not None:
             try:
                 safe_put(q_out, window)
             except:
                 pass
-
-        times.append(time.perf_counter() - t0)
 
         report(times, "csi_process_process")
 
