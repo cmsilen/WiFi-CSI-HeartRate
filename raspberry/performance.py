@@ -96,7 +96,7 @@ def csi_read_process(port, q_out, stop_event):
             pass
         times.append(time.perf_counter() - t0)
 
-    report(times, "csi_read_process")
+        report(times, "csi_read_process")
 
     try:
         ser.write(b"STOP\n")
@@ -149,7 +149,7 @@ def csi_process_process(q_in, q_out, stop_event):
 
         times.append(time.perf_counter() - t0)
 
-    report(times, "csi_process_process")
+        report(times, "csi_process_process")
 
 
 def prediction_process(q_in, q_out, stop_event):
@@ -189,7 +189,7 @@ def prediction_process(q_in, q_out, stop_event):
 
         times.append(time.perf_counter() - t0)
 
-    report(times, "prediction_process")
+        report(times, "prediction_process")
 
 
 def lcd_process(port, q_in, stop_event):
@@ -233,7 +233,7 @@ def lcd_process(port, q_in, stop_event):
 
         times.append(time.perf_counter() - t0)
 
-    report(times, "lcd_process")
+        report(times, "lcd_process")
 
     try:
         ser.close()
@@ -270,7 +270,8 @@ def main():
     except KeyboardInterrupt:
         print("Closing...")
         stop_event.set()
-        
+        for p in processes:
+            p.terminate()
 
 
 if __name__ == "__main__":
