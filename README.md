@@ -1,5 +1,9 @@
 # WiFi-CSI-HeartRate
-Group project for Industrial Application course, MSc in Computer Engineering, Università di Pisa, A.Y. 2025/2026
+Group project for Industrial Application course, MSc in Computer Engineering, Università di Pisa, A.Y. 2025/2026.
+Forked from the original repo [WiFi-CSI-HeartRate](https://github.com/AlessioSmn/WiFi-CSI-HeartRate).
+Authors:
+- [Carlo Mazzanti](https://github.com/cmsilen)
+- [Alessio Simoncini](https://github.com/AlessioSmn)
 ## Description
 System for the heart rate detection using CSI data of the WiFi subcarriers.
 The purpose for each file is the following:
